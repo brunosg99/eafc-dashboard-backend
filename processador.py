@@ -7,7 +7,7 @@ import numpy as np
 # --- CONFIGURAÇÃO IMPORTANTE (SÓ PARA WINDOWS) ---
 # Se você está no Windows, descomente (apague o #) a linha abaixo
 # e coloque o caminho exato onde o Tesseract foi instalado.
-pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
+# pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
 
 
 # --- O MAPA DO TESOURO (AS COORDENADAS) ---
@@ -130,4 +130,5 @@ if __name__ == "__main__":
     arquivo_imagem = 'jogo2.png'
     estatisticas = processar_imagem(arquivo_imagem)
     print("\n--- RESULTADO FINAL (FORMATO JSON) ---")
+
     print(json.dumps(estatisticas, indent=4))
