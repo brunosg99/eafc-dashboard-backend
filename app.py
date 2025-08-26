@@ -5,7 +5,7 @@ import os
 import uuid # Para gerar nomes de arquivo únicos
 
 app = Flask(__name__)
-CORS(app) # Habilita a comunicação entre domínios diferentes
+CORS(app, resources={r"/processar-imagem": {"origins": "https://eafc-dashboard-mvp.vercel.app"}}) # Habilita a comunicação entre domínios diferentes
 
 # Define uma pasta temporária para salvar os uploads
 UPLOAD_FOLDER = 'temp_uploads'
@@ -44,4 +44,5 @@ def processar_endpoint():
             return jsonify({"erro": f"Ocorreu um erro no processamento: {str(e)}"}), 500
 
 if __name__ == '__main__':
+
     app.run(debug=True)
