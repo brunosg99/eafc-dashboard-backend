@@ -62,25 +62,30 @@ MAPA_DE_COORDENADAS = {
 # --- NOVA FUNÇÃO DE PRÉ-PROCESSAMENTO (A "LINHA DE MONTAGEM") ---
 def processar_imagem(caminho_da_imagem):
     dados_finais = {}
-    imagem_original = cv2.imread(caminho_da_imagem)
-    if imagem_original is None:
+
+    # 1) Carrega
+    original = cv2.imread(caminho_da_imagem)
+    if original is None:
         print(f"Erro: não foi possível carregar a imagem '{caminho_da_imagem}'.")
         return {}
-        
-    imagem_cinza = cv2.cvtColor(imagem_original, cv2.COLOR_BGR2GRAY)
 
-    # Configurações Otimizadas
-    config_circulos = r'--oem 3 --psm 7 -c tessedit_char_whitelist=0123456789%'
+    # 2) Normaliza para 1920x1080 (sem distorção se a imagem já for 16:9, como 1600x900)
+    TARGET_W, TARGET_H = 1920, 1080
+    if (original.shape[1], original.shape[0]) != (TARGET_W, TARGET_H):
+        original = cv2.resize(original, (TARGET_W, TARGET_H), interpolation=cv2.INTER_AREA)
+
+    # 3) Tons de cinza
+    gray = cv2.cvtColor(original, cv2.COLOR_BGR2GRAY)
+
+    # 4) Configs do Tesseract
+    config_circulos     = r'--oem 3 --psm 7 -c tessedit_char_whitelist=0123456789%'
     config_multi_digito = r'--oem 1 --psm 6 -c tessedit_char_whitelist=0123456789,.'
-    config_um_digito = r'--oem 3 --psm 10 -c tessedit_char_whitelist=0123456789'
-    config_palavra_robusta = r'--oem 1 --psm 8 -c tessedit_char_whitelist=0123456789'
+    config_um_digito    = r'--oem 3 --psm 10 -c tessedit_char_whitelist=0123456789'
 
-    # Listas de Controle Finais
     zeros_time1_sensiveis = [
         "tabela_time1_faltas_cometidas", "tabela_time1_impedimentos",
         "tabela_time1_faltas", "tabela_time1_penaltis", "tabela_time1_cartoes_amarelos"
     ]
-    
     outros_um_digito = [
         "tabela_time1_recuperacao_bola", "tabela_time1_finalizacoes", "tabela_time1_divididas_ganhas",
         "tabela_time1_interceptacoes", "tabela_time1_defesas", "tabela_time1_escanteios",
@@ -90,45 +95,48 @@ def processar_imagem(caminho_da_imagem):
         "tabela_time2_penaltis", "tabela_time2_cartoes_amarelos"
     ]
 
-    for nome_da_estatistica, (x, y, w, h) in MAPA_DE_COORDENADAS.items():
-        recorte_cinza = imagem_cinza[y:y+h, x:x+w]
+    H, W = gray.shape[:2]
 
-        # A "Lupa Digital" (Upscaling) que você sugeriu
-        recorte_ampliado = cv2.resize(recorte_cinza, (w * 2, h * 2), interpolation=cv2.INTER_CUBIC)
+    for nome, (x, y, w, h) in MAPA_DE_COORDENADAS.items():
+        # Clipping defensivo (evita recortes fora da imagem)
+        x1, y1 = max(0, x), max(0, y)
+        x2, y2 = min(W, x + w), min(H, y + h)
 
-        # Lógica de Calibragem Híbrida
-        if nome_da_estatistica.startswith("circulo_"):
-            valor_corte = 170
-            _, recorte_processado = cv2.threshold(recorte_ampliado, valor_corte, 255, cv2.THRESH_BINARY)
-            config_atual = config_circulos
-        elif nome_da_estatistica in zeros_time1_sensiveis:
-            valor_corte = 140
-            _, recorte_processado = cv2.threshold(recorte_ampliado, valor_corte, 255, cv2.THRESH_BINARY_INV)
-            config_atual = config_um_digito
-        elif nome_da_estatistica in outros_um_digito:
-            valor_corte = 160
-            _, recorte_processado = cv2.threshold(recorte_ampliado, valor_corte, 255, cv2.THRESH_BINARY_INV)
-            config_atual = config_um_digito
+        if x2 <= x1 or y2 <= y1:
+            dados_finais[nome] = ""
+            continue
+
+        rec = gray[y1:y2, x1:x2]
+        if rec.size == 0:
+            dados_finais[nome] = ""
+            continue
+
+        # Upscaling do recorte (zoom para OCR)
+        rec_up = cv2.resize(rec, (rec.shape[1]*2, rec.shape[0]*2), interpolation=cv2.INTER_CUBIC)
+
+        # Pré-processamento conforme o tipo
+        if nome.startswith("circulo_"):
+            _, rec_proc = cv2.threshold(rec_up, 170, 255, cv2.THRESH_BINARY)
+            config = config_circulos
+        elif nome in zeros_time1_sensiveis:
+            _, rec_proc = cv2.threshold(rec_up, 140, 255, cv2.THRESH_BINARY_INV)
+            config = config_um_digito
+        elif nome in outros_um_digito:
+            _, rec_proc = cv2.threshold(rec_up, 160, 255, cv2.THRESH_BINARY_INV)
+            config = config_um_digito
         else:
-            valor_corte = 170
-            _, recorte_processado = cv2.threshold(recorte_ampliado, valor_corte, 255, cv2.THRESH_BINARY_INV)
-            config_atual = config_multi_digito
-        
-        # Ative para a calibragem final entre diferentes imagens
-        # cv2.imshow(f"Debug: {nome_da_estatistica}", recorte_processado)
-        # cv2.waitKey(0)
+            _, rec_proc = cv2.threshold(rec_up, 170, 255, cv2.THRESH_BINARY_INV)
+            config = config_multi_digito
 
-        texto_extraido = pytesseract.image_to_string(recorte_processado, config=config_atual)
-        valor_limpo = texto_extraido.strip()
-        dados_finais[nome_da_estatistica] = valor_limpo
-        
-    cv2.destroyAllWindows()
+        texto = pytesseract.image_to_string(rec_proc, config=config)
+        valor = texto.strip()
+        dados_finais[nome] = valor
+
     return dados_finais
 
-# --- O "BOTÃO DE PLAY" ---
 if __name__ == "__main__":
-    arquivo_imagem = 'jogo2.png'
+    arquivo_imagem = 'jogo2.png'  # troque pelo seu arquivo para testar
     estatisticas = processar_imagem(arquivo_imagem)
     print("\n--- RESULTADO FINAL (FORMATO JSON) ---")
+    print(json.dumps(estatisticas, indent=4, ensure_ascii=False))
 
-    print(json.dumps(estatisticas, indent=4))
